@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>萌宠消消乐</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: linear-gradient(135deg, #ffe4f0 0%, #fef3fb 50%, #e8f4ff 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    /* floating background bubbles */
+    .bg-bubble {
+      position: fixed;
+      border-radius: 50%;
+      opacity: 0.18;
+      pointer-events: none;
+      animation: float-bubble linear infinite;
+    }
+    @keyframes float-bubble {
+      0%   { transform: translateY(110vh) scale(0.8); opacity: 0; }
+      10%  { opacity: 0.18; }
+      90%  { opacity: 0.18; }
+      100% { transform: translateY(-20vh) scale(1.1); opacity: 0; }
+    }
+
+    #game-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 12px 24px;
+      width: 100%;
+      max-width: 440px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Title ── */
+    #game-title {
+      font-size: 26px;
+      font-weight: 800;
+      color: #d63a72;
+      letter-spacing: 2px;
+      margin-bottom: 14px;
+      text-shadow: 0 2px 0 #ffb3d1;
+    }
+
+    /* ── HUD ── */
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 380px;
+      margin-bottom: 12px;
+      gap: 10px;
+    }
+    .hud-box {
+      flex: 1;
+      background: #fff;
+      border-radius: 20px;
+      padding: 8px 10px;
+      text-align: center;
+      border: 2.5px solid #ffc0d9;
+      box-shadow: 0 3px 0 #ffa0c8;
+    }
+    .hud-label {
+      font-size: 10px;
+      color: #c06080;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .hud-val {
+      font-size: 24px;
+      font-weight: 800;
+      color: #d63a72;
+      line-height: 1.2;
+    }
+    #moves-val.low { color: #e05030; animation: low-pulse 0.6s ease infinite alternate; }
+    @keyframes low-pulse {
+      from { transform: scale(1); }
+      to   { transform: scale(1.15); }
+    }
+
+    /* ── Board ── */
+    #board-wrap {
+      position: relative;
+      background: rgba(255,255,255,0.85);
+      border-radius: 28px;
+      padding: 10px;
+      border: 3px solid #ffc0d9;
+      box-shadow: 0 6px 0 #ffa0c8, 0 10px 30px rgba(220,80,120,0.12);
+      margin-bottom: 14px;
+    }
+    #board {
+      display: grid;
+      gap: 6px;
+    }
+    .cell {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      cursor: pointer;
+      background: #fff0f8;
+      border: 2px solid #ffd6ea;
+      transition: transform 0.13s cubic-bezier(.34,1.56,.64,1), background 0.12s;
+      position: relative;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .cell:hover  { transform: scale(1.1);  background: #ffe4f2; }
+    .cell:active { transform: scale(0.95); }
+
+    .cell.selected {
+      background: #ffd6ea;
+      border-color: #d63a72;
+      transform: scale(1.15);
+      box-shadow: 0 0 0 3px #d63a7244;
+      animation: wobble 0.45s ease;
+      z-index: 2;
+    }
+    @keyframes wobble {
+      0%,100% { transform: scale(1.15) rotate(0deg); }
+      25%     { transform: scale(1.18) rotate(-7deg); }
+      75%     { transform: scale(1.18) rotate(7deg); }
+    }
+
+    .cell.matched {
+      animation: pop-out 0.38s cubic-bezier(.34,1.56,.64,1) forwards;
+    }
+    @keyframes pop-out {
+      0%   { transform: scale(1);    opacity: 1; }
+      45%  { transform: scale(1.4);  opacity: 0.8; }
+      100% { transform: scale(0);    opacity: 0; }
+    }
+
+    .cell.new-fall {
+      animation: fall-in 0.32s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes fall-in {
+      0%   { transform: translateY(-56px); opacity: 0.2; }
+      100% { transform: translateY(0);     opacity: 1; }
+    }
+
+    .cell.hint {
+      animation: hint-glow 0.55s ease infinite alternate;
+      z-index: 2;
+    }
+    @keyframes hint-glow {
+      from { transform: scale(1);    box-shadow: 0 0 0 0   #d63a7244; }
+      to   { transform: scale(1.12); box-shadow: 0 0 0 7px #d63a7222; }
+    }
+
+    .cell.wrong-swap {
+      animation: shake 0.35s ease;
+    }
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20%     { transform: translateX(-6px); }
+      60%     { transform: translateX(6px); }
+    }
+
+    /* ── Combo popup ── */
+    #combo-msg {
+      position: absolute;
+      top: -42px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 17px;
+      font-weight: 800;
+      color: #d63a72;
+      pointer-events: none;
+      white-space: nowrap;
+      opacity: 0;
+    }
+    #combo-msg.show {
+      animation: combo-fly 1.3s ease forwards;
+    }
+    @keyframes combo-fly {
+      0%   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
+      55%  { opacity: 1; transform: translateX(-50%) translateY(-22px) scale(1.25); }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-32px) scale(0.9); }
+    }
+
+    /* ── Score burst ── */
+    .score-burst {
+      position: absolute;
+      font-size: 14px;
+      font-weight: 700;
+      color: #d63a72;
+      pointer-events: none;
+      animation: burst 0.9s ease forwards;
+      z-index: 20;
+    }
+    @keyframes burst {
+      0%   { opacity: 1; transform: translateY(0)     scale(1); }
+      100% { opacity: 0; transform: translateY(-36px) scale(0.8); }
+    }
+
+    /* ── Message bar ── */
+    #msg-bar {
+      height: 26px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #c06080;
+      text-align: center;
+      letter-spacing: 0.3px;
+      margin-bottom: 10px;
+    }
+
+    /* ── Buttons ── */
+    #btn-row { display: flex; gap: 10px; }
+    .btn {
+      background: #fff;
+      border: 2.5px solid #ffc0d9;
+      border-radius: 22px;
+      padding: 9px 22px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #d63a72;
+      cursor: pointer;
+      box-shadow: 0 3px 0 #ffa0c8;
+      transition: transform 0.1s, box-shadow 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:hover  { transform: translateY(-2px); box-shadow: 0 5px 0 #ffa0c8; }
+    .btn:active { transform: translateY(2px);  box-shadow: 0 1px 0 #ffa0c8; }
+
+    /* ── Game Over overlay ── */
+    #gameover-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(255,248,252,0.94);
+      border-radius: 25px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      gap: 12px;
+      backdrop-filter: blur(2px);
+    }
+    #gameover-overlay.show { display: flex; }
+    .over-emoji  { font-size: 52px; animation: bounce-in 0.5s cubic-bezier(.34,1.56,.64,1); }
+    .over-title  { font-size: 26px; font-weight: 800; color: #d63a72; }
+    .over-score  { font-size: 16px; color: #c06080; font-weight: 600; }
+    .over-best   { font-size: 13px; color: #e0a0b8; }
+    .over-btn {
+      margin-top: 6px;
+      background: linear-gradient(135deg, #f06090, #d63a72);
+      color: #fff;
+      border: none;
+      border-radius: 22px;
+      padding: 12px 32px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #a02850;
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .over-btn:hover  { transform: translateY(-2px); box-shadow: 0 6px 0 #a02850; }
+    .over-btn:active { transform: translateY(2px);  box-shadow: 0 2px 0 #a02850; }
+
+    @keyframes bounce-in {
+      0%   { transform: scale(0); }
+      70%  { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+
+    /* ── responsive ── */
+    @media (max-width: 400px) {
+      .cell { width: 42px; height: 42px; font-size: 22px; border-radius: 12px; }
+      #board { gap: 5px; }
+      #game-title { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- floating bubbles -->
+<script>
+  const colors = ['#ffc0d9','#c0d9ff','#c0ffdc','#ffefc0','#e0c0ff'];
+  for (let i = 0; i < 12; i++) {
+    const b = document.createElement('div');
+    b.className = 'bg-bubble';
+    const sz = 30 + Math.random() * 60;
+    b.style.cssText = `
+      width:${sz}px; height:${sz}px;
+      left:${Math.random()*100}vw;
+      background:${colors[i%colors.length]};
+      animation-duration:${8+Math.random()*10}s;
+      animation-delay:${-Math.random()*12}s;
+    `;
+    document.body.appendChild(b);
+  }
+</script>
+
+<div id="game-wrap">
+  <div id="game-title">🐾 萌宠消消乐</div>
+
+  <div id="hud">
+    <div class="hud-box">
+      <div class="hud-label">⭐ SCORE</div>
+      <div class="hud-val" id="score-val">0</div>
+    </div>
+    <div class="hud-box">
+      <div class="hud-label">🎯 BEST</div>
+      <div class="hud-val" id="best-val">0</div>
+    </div>
+    <div class="hud-box">
+      <div class="hud-label">👣 MOVES</div>
+      <div class="hud-val" id="moves-val">30</div>
+    </div>
+  </div>
+
+  <div id="board-wrap">
+    <div id="board"></div>
+    <div id="combo-msg"></div>
+    <div id="gameover-overlay">
+      <div class="over-emoji">🎉</div>
+      <div class="over-title">游戏结束！</div>
+      <div class="over-score" id="final-score"></div>
+      <div class="over-best"  id="final-best"></div>
+      <button class="over-btn" onclick="startGame()">再来一局 ✨</button>
+    </div>
+  </div>
+
+  <div id="msg-bar">点击两个相邻动物来交换消除！</div>
+
+  <div id="btn-row">
+    <button class="btn" onclick="startGame()">🔄 重开</button>
+    <button class="btn" onclick="showHint()">💡 提示</button>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────
+//  CONFIG
+// ──────────────────────────────────────────
+const COLS      = 7;
+const ROWS      = 7;
+const MAX_MOVES = 30;
+const ANIMALS   = ['🐱','🐶','🐰','🐸','🐼','🦊','🐨'];
+
+// ──────────────────────────────────────────
+//  STATE
+// ──────────────────────────────────────────
+let board    = [];
+let score    = 0;
+let best     = parseInt(localStorage.getItem('mxl_best') || '0');
+let moves    = MAX_MOVES;
+let selected = null;
+let busy     = false;
+let hintCells = [];
+
+const boardEl   = document.getElementById('board');
+const scoreEl   = document.getElementById('score-val');
+const bestEl    = document.getElementById('best-val');
+const movesEl   = document.getElementById('moves-val');
+const msgEl     = document.getElementById('msg-bar');
+const comboEl   = document.getElementById('combo-msg');
+const overlayEl = document.getElementById('gameover-overlay');
+
+// ──────────────────────────────────────────
+//  INIT
+// ──────────────────────────────────────────
+function startGame() {
+  score = 0; moves = MAX_MOVES; selected = null; busy = false;
+  clearHints();
+  overlayEl.classList.remove('show');
+  updateHUD();
+  bestEl.textContent = best;
+
+  board = [];
+  for (let r = 0; r < ROWS; r++) {
+    board[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      board[r][c] = safeRandom(r, c);
+    }
+  }
+  render();
+  setMsg('点击两个相邻动物来交换消除！');
+}
+
+function safeRandom(r, c) {
+  let pool = [...ANIMALS];
+  if (r >= 2 && board[r-1][c] === board[r-2][c])
+    pool = pool.filter(a => a !== board[r-1][c]);
+  if (c >= 2 && board[r][c-1] === board[r][c-2])
+    pool = pool.filter(a => a !== board[r][c-1]);
+  if (!pool.length) pool = [...ANIMALS];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// ──────────────────────────────────────────
+//  RENDER
+// ──────────────────────────────────────────
+function render() {
+  boardEl.style.gridTemplateColumns = `repeat(${COLS}, auto)`;
+  boardEl.innerHTML = '';
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+      cell.textContent = board[r][c] || '';
+      cell.addEventListener('click', () => onCellClick(r, c));
+      boardEl.appendChild(cell);
+    }
+  }
+}
+
+function getCell(r, c) {
+  return boardEl.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+}
+
+function updateHUD() {
+  scoreEl.textContent = score;
+  movesEl.textContent = moves;
+  movesEl.classList.toggle('low', moves <= 5);
+}
+
+function setMsg(txt) { msgEl.textContent = txt; }
+
+// ──────────────────────────────────────────
+//  INTERACTION
+// ──────────────────────────────────────────
+function onCellClick(r, c) {
+  if (busy) return;
+  clearHints();
+
+  if (selected === null) {
+    selected = { r, c };
+    getCell(r, c).classList.add('selected');
+    setMsg('好！再选一个相邻的 🐾');
+    return;
+  }
+
+  const prev = selected;
+  selected = null;
+  getCell(prev.r, prev.c)?.classList.remove('selected');
+
+  if (prev.r === r && prev.c === c) {
+    setMsg('点击两个相邻动物来交换消除！');
+    return;
+  }
+
+  if (isAdjacent(prev, { r, c })) {
+    trySwap(prev.r, prev.c, r, c);
+  } else {
+    selected = { r, c };
+    getCell(r, c).classList.add('selected');
+    setMsg('只能交换相邻的哦 😊');
+  }
+}
+
+function isAdjacent(a, b) {
+  return Math.abs(a.r - b.r) + Math.abs(a.c - b.c) === 1;
+}
+
+// ──────────────────────────────────────────
+//  SWAP + RESOLVE
+// ──────────────────────────────────────────
+async function trySwap(r1, c1, r2, c2) {
+  busy = true;
+  swapBoard(r1, c1, r2, c2);
+  render();
+
+  const matches = findMatches();
+  if (matches.length === 0) {
+    await delay(180);
+    // shake animation
+    [getCell(r1,c1), getCell(r2,c2)].forEach(el => {
+      if (!el) return;
+      el.classList.add('wrong-swap');
+      el.addEventListener('animationend', () => el.classList.remove('wrong-swap'), { once: true });
+    });
+    swapBoard(r1, c1, r2, c2);
+    render();
+    setMsg('没有消除效果，换个位置试试 😊');
+    busy = false;
+    return;
+  }
+
+  moves--;
+  updateHUD();
+  await resolveAll();
+  busy = false;
+  if (moves <= 0) endGame();
+  else setMsg('继续消消乐！✨');
+}
+
+function swapBoard(r1, c1, r2, c2) {
+  [board[r1][c1], board[r2][c2]] = [board[r2][c2], board[r1][c1]];
+}
+
+async function resolveAll() {
+  let combo = 0;
+  while (true) {
+    const matches = findMatches();
+    if (!matches.length) break;
+    combo++;
+    const pts = matches.length * 10 * (combo === 1 ? 1 : combo);
+    score += pts;
+    updateHUD();
+    if (combo > 1) showCombo(combo, pts);
+    showScoreBurst(pts);
+    await animateMatched(matches);
+    dropAndFill();
+    render();
+    await animateNewCells();
+    await delay(80);
+  }
+}
+
+// ──────────────────────────────────────────
+//  MATCH LOGIC
+// ──────────────────────────────────────────
+function findMatches() {
+  const set = new Set();
+  // horizontal
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS - 2; c++) {
+      const a = board[r][c];
+      if (!a) continue;
+      let len = 1;
+      while (c + len < COLS && board[r][c + len] === a) len++;
+      if (len >= 3) {
+        for (let k = 0; k < len; k++) set.add(`${r},${c+k}`);
+        c += len - 1;
+      }
+    }
+  }
+  // vertical
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS - 2; r++) {
+      const a = board[r][c];
+      if (!a) continue;
+      let len = 1;
+      while (r + len < ROWS && board[r + len][c] === a) len++;
+      if (len >= 3) {
+        for (let k = 0; k < len; k++) set.add(`${r+k},${c}`);
+        r += len - 1;
+      }
+    }
+  }
+  return [...set].map(s => { const [r,c] = s.split(','); return { r:+r, c:+c }; });
+}
+
+async function animateMatched(matches) {
+  matches.forEach(({ r, c }) => getCell(r, c)?.classList.add('matched'));
+  await delay(380);
+  matches.forEach(({ r, c }) => { board[r][c] = null; });
+}
+
+function dropAndFill() {
+  for (let c = 0; c < COLS; c++) {
+    // collect non-null values bottom-up
+    const vals = [];
+    for (let r = ROWS - 1; r >= 0; r--) {
+      if (board[r][c] !== null) vals.push(board[r][c]);
+    }
+    // fill missing with new randoms
+    while (vals.length < ROWS)
+      vals.push(ANIMALS[Math.floor(Math.random() * ANIMALS.length)]);
+    // write back bottom-up
+    for (let r = ROWS - 1; r >= 0; r--) board[r][c] = vals[ROWS - 1 - r];
+  }
+}
+
+async function animateNewCells() {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const el = getCell(r, c);
+      if (!el) continue;
+      el.classList.add('new-fall');
+      el.addEventListener('animationend', () => el.classList.remove('new-fall'), { once: true });
+    }
+  }
+  await delay(340);
+}
+
+// ──────────────────────────────────────────
+//  HINT
+// ──────────────────────────────────────────
+function showHint() {
+  if (busy) return;
+  clearHints();
+  const move = findFirstMove();
+  if (!move) { setMsg('好像没有可移动的了... 🤔'); return; }
+  hintCells = [getCell(move.r1, move.c1), getCell(move.r2, move.c2)];
+  hintCells.forEach(el => el?.classList.add('hint'));
+  setMsg('💡 试试交换这两个！');
+  setTimeout(clearHints, 2200);
+}
+
+function clearHints() {
+  hintCells.forEach(el => el?.classList.remove('hint'));
+  hintCells = [];
+}
+
+function findFirstMove() {
+  const dirs = [[0,1],[1,0]];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      for (const [dr, dc] of dirs) {
+        const r2 = r+dr, c2 = c+dc;
+        if (r2 >= ROWS || c2 >= COLS) continue;
+        swapBoard(r,c,r2,c2);
+        const found = findMatches().length > 0;
+        swapBoard(r,c,r2,c2);
+        if (found) return { r1:r, c1:c, r2, c2 };
+      }
+    }
+  }
+  return null;
+}
+
+// ──────────────────────────────────────────
+//  VISUAL FEEDBACK
+// ──────────────────────────────────────────
+function showCombo(n, pts) {
+  const labels = ['','','✨','⚡ 连击','🔥 超级连击','💥 完美连击','🌟 神级连击'];
+  const label  = labels[Math.min(n, labels.length-1)] || `🌟 x${n}`;
+  comboEl.textContent = `${label} x${n}！ +${pts}`;
+  comboEl.className = '';
+  void comboEl.offsetWidth;
+  comboEl.className = 'show';
+}
+
+function showScoreBurst(pts) {
+  const wrap = document.getElementById('board-wrap');
+  const el = document.createElement('div');
+  el.className = 'score-burst';
+  el.textContent = `+${pts}`;
+  el.style.top  = `${20 + Math.random() * 40}%`;
+  el.style.left = `${30 + Math.random() * 40}%`;
+  wrap.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+// ──────────────────────────────────────────
+//  GAME OVER
+// ──────────────────────────────────────────
+function endGame() {
+  if (score > best) {
+    best = score;
+    localStorage.setItem('mxl_best', best);
+    bestEl.textContent = best;
+  }
+  document.getElementById('final-score').textContent = `本局得分：${score} 分 🌟`;
+  document.getElementById('final-best').textContent  =
+    score >= best ? '🎊 新纪录！' : `最高纪录：${best} 分`;
+  overlayEl.classList.add('show');
+}
+
+// ──────────────────────────────────────────
+//  UTILS
+// ──────────────────────────────────────────
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ──────────────────────────────────────────
+//  START
+// ──────────────────────────────────────────
+startGame();
+</script>
+</body>
+</html>
