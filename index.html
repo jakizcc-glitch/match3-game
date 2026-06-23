@@ -341,6 +341,7 @@
   <div id="btn-row">
     <button class="btn" onclick="startGame()">🔄 重开</button>
     <button class="btn" onclick="showHint()">💡 提示</button>
+    <button class="btn" id="btn-sound" onclick="toggleSound()">🔊 音效</button>
   </div>
 </div>
 
@@ -444,6 +445,7 @@ function onCellClick(r, c) {
   if (selected === null) {
     selected = { r, c };
     getCell(r, c).classList.add('selected');
+    sfxSelect();
     setMsg('好！再选一个相邻的 🐾');
     return;
   }
@@ -487,6 +489,7 @@ async function trySwap(r1, c1, r2, c2) {
       el.classList.add('wrong-swap');
       el.addEventListener('animationend', () => el.classList.remove('wrong-swap'), { once: true });
     });
+    sfxWrong();
     swapBoard(r1, c1, r2, c2);
     render();
     setMsg('没有消除效果，换个位置试试 😊');
@@ -515,7 +518,8 @@ async function resolveAll() {
     const pts = matches.length * 10 * (combo === 1 ? 1 : combo);
     score += pts;
     updateHUD();
-    if (combo > 1) showCombo(combo, pts);
+    sfxMatch(combo);
+    if (combo > 1) { showCombo(combo, pts); sfxCombo(combo); }
     showScoreBurst(pts);
     await animateMatched(matches);
     dropAndFill();
@@ -655,6 +659,7 @@ function showScoreBurst(pts) {
 //  GAME OVER
 // ──────────────────────────────────────────
 function endGame() {
+  sfxGameOver();
   if (score > best) {
     best = score;
     localStorage.setItem('mxl_best', best);
@@ -664,6 +669,104 @@ function endGame() {
   document.getElementById('final-best').textContent  =
     score >= best ? '🎊 新纪录！' : `最高纪录：${best} 分`;
   overlayEl.classList.add('show');
+}
+
+// ──────────────────────────────────────────
+//  SOUND ENGINE  (Web Audio API — no files needed)
+// ──────────────────────────────────────────
+let audioCtx = null;
+let soundOn  = true;
+
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+// Generic tone builder
+function playTone({ freq = 440, type = 'sine', gain = 0.18, attack = 0.01,
+                    decay = 0.12, sustain = 0.0, release = 0.08, duration = 0.2 } = {}) {
+  if (!soundOn) return;
+  try {
+    const ctx = getCtx();
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.connect(env);
+    env.connect(ctx.destination);
+    osc.type      = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    env.gain.setValueAtTime(0, ctx.currentTime);
+    env.gain.linearRampToValueAtTime(gain,    ctx.currentTime + attack);
+    env.gain.linearRampToValueAtTime(sustain, ctx.currentTime + attack + decay);
+    env.gain.linearRampToValueAtTime(0,       ctx.currentTime + attack + decay + release);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration);
+  } catch(e) {}
+}
+
+// 🔵 Select — soft high ping
+function sfxSelect() {
+  playTone({ freq: 880, type: 'sine', gain: 0.12, attack: 0.005, decay: 0.08, release: 0.06, duration: 0.15 });
+}
+
+// ❌ Wrong swap — low thud
+function sfxWrong() {
+  playTone({ freq: 160, type: 'triangle', gain: 0.22, attack: 0.01, decay: 0.14, release: 0.05, duration: 0.2 });
+}
+
+// ✅ Match — cheerful pop chord
+function sfxMatch(comboLevel = 1) {
+  const notes = [523, 659, 784, 1047]; // C5 E5 G5 C6
+  const count  = Math.min(comboLevel + 1, notes.length);
+  notes.slice(0, count).forEach((freq, i) => {
+    setTimeout(() => {
+      playTone({ freq, type: 'sine', gain: 0.15, attack: 0.005,
+                 decay: 0.1, release: 0.08, duration: 0.22 });
+    }, i * 55);
+  });
+}
+
+// ⚡ Combo — rising sweep
+function sfxCombo(level) {
+  const base  = 400 + level * 80;
+  const ctx   = getCtx();
+  if (!soundOn) return;
+  try {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.connect(env); env.connect(ctx.destination);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(base,        ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(base * 2, ctx.currentTime + 0.25);
+    env.gain.setValueAtTime(0,    ctx.currentTime);
+    env.gain.linearRampToValueAtTime(0.13, ctx.currentTime + 0.02);
+    env.gain.linearRampToValueAtTime(0,    ctx.currentTime + 0.28);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+// 🎊 Game over — little fanfare melody
+function sfxGameOver() {
+  const melody = [
+    { freq: 523, t: 0 },
+    { freq: 659, t: 0.12 },
+    { freq: 784, t: 0.24 },
+    { freq: 1047, t: 0.36 },
+    { freq: 784, t: 0.52 },
+    { freq: 1047, t: 0.64 },
+  ];
+  melody.forEach(({ freq, t }) => {
+    setTimeout(() => playTone({
+      freq, type: 'sine', gain: 0.16,
+      attack: 0.01, decay: 0.1, release: 0.1, duration: 0.22
+    }), t * 1000);
+  });
+}
+
+// 🔇 Mute toggle
+function toggleSound() {
+  soundOn = !soundOn;
+  document.getElementById('btn-sound').textContent = soundOn ? '🔊 音效' : '🔇 静音';
 }
 
 // ──────────────────────────────────────────
